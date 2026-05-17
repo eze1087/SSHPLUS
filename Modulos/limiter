@@ -1,47 +1,38 @@
 #!/bin/bash
-#====================================================
-#	SCRIPT: LIMITER SSHPLUS MANAGER
-#	DESENVOLVIDO POR:	CRAZY_VPN
-#	CONTATO TELEGRAM:	http://t.me/crazy_vpn
-#	CANAL TELEGRAM:	http://t.me/sshplus
-#====================================================
-clear
-system=$(cat /etc/issue.net)
-date=$(date '+%d-%m-%Y HORÁRIO: %H:%M:%S')
-database="/root/usuarios.db"
-fun_multilogin() {
-	(
-		while read user; do
-			[[ $(grep -wc "$user" $database) != '0' ]] && limit="$(grep -w $user $database | cut -d' ' -f2)" || limit='1'
-			conssh="$(ps -u $user | grep sshd | wc -l)"
-			[[ "$conssh" -gt "$limit" ]] && {
-				pkill -u $user
-echo ULTRAPASSOU O LIMITE >> /root/banido
-echo NOME: $user DATA: $date >> /root/banido
-echo __________________________________ >> /root/banido		
-			}
-			[[ -e /etc/openvpn/openvpn-status.log ]] && {
-				ovp="$(grep -E ,"$user", /etc/openvpn/openvpn-status.log | wc -l)"
-				[[ "$ovp" -gt "$limit" ]] && {
-					pidokill=$(($limit - $ovp))
-					listpid=$(grep -E ,"$user", /etc/openvpn/openvpn-status.log | cut -d "," -f3 | head -n $pidokill)
-					while read ovpids; do
-						(
-							telnet localhost 7505 <<-EOF
-								kill $ovpids
-echo ULTRAPASSOU O LIMITE >> /root/banido
-echo NOME: $user DATA: $date >> /root/banido
-echo __________________________________ >> /root/banido		
-							EOF
-						) &>/dev/null &
-					done <<<"$listpid"
-				}
-			}
-		done <<<"$(awk -F: '$3 >= 1000 {print $1}' /etc/passwd)"
-	) &
+# SSH-PLUS BY El NeNe Pro - Limitador de conexiones
+DB="/root/usuarios.db"
+LOG="/root/banido"
+[[ ! -f "$DB" ]] && { echo "No existe $DB"; exit 1; }
+
+ovpn_count() { [[ -e /etc/openvpn/openvpn-status.log ]] && grep -E ",$1," /etc/openvpn/openvpn-status.log | wc -l || echo 0; }
+ssh_count() { ps -u "$1" -o comm= 2>/dev/null | grep -c '^sshd$'; }
+kill_ovpn_user() {
+    local user="$1"
+    command -v telnet >/dev/null 2>&1 || return 0
+    ( echo "kill $user"; sleep 1; echo "exit" ) | telnet localhost 7505 >/dev/null 2>&1 || true
 }
+log_limit() {
+    local user="$1" total="$2" limit="$3"
+    {
+        echo "SUPERÓ EL LÍMITE DE CONEXIONES"
+        echo "USUARIO: $user FECHA: $(date '+%d-%m-%Y HORA: %H:%M:%S') CONEXIONES: $total/$limit"
+        echo "__________________________________"
+    } >> "$LOG"
+}
+
 while true; do
-    echo 'verificando...'
-	fun_multilogin > /dev/null 2>&1
-	sleep 15s
+    while read -r user limit _; do
+        [[ -z "$user" ]] && continue
+        getent passwd "$user" >/dev/null || continue
+        [[ -z "$limit" || ! "$limit" =~ ^[0-9]+$ || "$limit" -lt 1 ]] && limit=1
+        sshc=$(ssh_count "$user")
+        ovpc=$(ovpn_count "$user")
+        total=$((sshc + ovpc))
+        if [[ "$total" -gt "$limit" ]]; then
+            pkill -u "$user" >/dev/null 2>&1 || true
+            [[ "$ovpc" -gt 0 ]] && kill_ovpn_user "$user"
+            log_limit "$user" "$total" "$limit"
+        fi
+    done < "$DB"
+    sleep 15
 done

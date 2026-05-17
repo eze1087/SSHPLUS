@@ -1,63 +1,67 @@
-#!/bin/bash
+#!/usr/bin/env bash
 clear
-#--------------------------
-# SCRIPR SSH-PLUS
-# CANAL TELEGRAM: @swittecnologia
-#--------------------------
+# SSHPLUS BY El NeNe
 
-# - Cores
 RED='\033[1;31m'
 YELLOW='\033[1;33m'
+GREEN='\033[1;32m'
 SCOLOR='\033[0m'
+GITHUB_USER="${GITHUB_USER:-eze1087}"
+GITHUB_REPO="${GITHUB_REPO:-SSHPLUS}"
+GITHUB_BRANCH="${GITHUB_BRANCH:-SSHPLUS-BY-NeNePro}"
+RAW_BASE="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
+export GITHUB_USER GITHUB_REPO GITHUB_BRANCH RAW_BASE
 
-# - Verifica Execucao Como Root
-[[ "$EUID" -ne 0 ]] && {
-    echo -e "{RED}[x] VC PRECISA EXECULTAR COMO USUARIO ROOT !{SCOLOR}"
+[[ "${EUID:-$(id -u)}" -ne 0 ]] && {
+    echo -e "${RED}[x] Tenés que ejecutar como root.${SCOLOR}"
     exit 1
 }
 
-# - Verifica Arquitetura Compativel
 case "$(uname -m)" in
-    'amd64' | 'x86_64')
-        arch='64'
-        ;;
-    'aarch64' | 'armv8')
-        arch='arm64'
-        ;;
-    *)
-        echo -e "${RED}[x] ARQUITETURA INCOMPATIVEL !${SCOLOR}"
-        exit 1
-        ;;
+    amd64|x86_64) arch='64' ;;
+    aarch64|armv8|arm64) arch='arm64' ;;
+    *) echo -e "${RED}[x] Arquitectura incompatible.${SCOLOR}"; exit 1 ;;
 esac
 
-# - Verifica OS Compativel
-if grep -qs "ubuntu" /etc/os-release; then
-	os_version=$(grep 'VERSION_ID' /etc/os-release | cut -d '"' -f 2 | tr -d '.')
+if grep -qi "ubuntu" /etc/os-release; then
+    os_version=$(grep 'VERSION_ID' /etc/os-release | cut -d '"' -f 2 | tr -d '.')
     [[ "$os_version" -lt 1804 ]] && {
-        echo -e "${RED}[x] VERSAO DO UBUNTU INCOMPATIVEL !\n${YELLOW}[!] REQUER UBUNTU 18.04 OU SUPERIOR !${SCOLOR}"
+        echo -e "${RED}[x] Versión de Ubuntu incompatible.\n${YELLOW}[!] Requiere Ubuntu 18.04 o superior.${SCOLOR}"
         exit 1
     }
 elif [[ -e /etc/debian_version ]]; then
-	os_version=$(grep -oE '[0-9]+' /etc/debian_version | head -1)
+    os_version=$(grep -oE '[0-9]+' /etc/debian_version | head -1)
     [[ "$os_version" -lt 9 ]] && {
-        echo -e "${RED}[x] VERSAO DO DEBIAN INCOMPATIVEL !\n${YELLOW}[!] REQUER DEBIAN 9 OU SUPERIOR !${SCOLOR}"
+        echo -e "${RED}[x] Versión de Debian incompatible.\n${YELLOW}[!] Requiere Debian 9 o superior.${SCOLOR}"
         exit 1
     }
 else
-    echo -e "${RED}[x] OS INCOMPATIVEL !\n${YELLOW}[!] REQUER DISTROS BASE DEBIAN/UBUNTU !${SCOLOR}"
+    echo -e "${RED}[x] Sistema operativo incompatible.\n${YELLOW}[!] Requiere Debian/Ubuntu.${SCOLOR}"
     exit 1
 fi
 
-# - Atualiza Lista/Pacotes/Sistema
 dpkg --configure -a
 apt update -y && apt upgrade -y
-apt install unzip python3 -y
+apt install -y unzip python3 python3-pip curl wget screen net-tools
 
-# - Desabilita ipv6
-sysctl -w net.ipv6.conf.all.disable_ipv6=1 && sysctl -p
+sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1 || true
 echo 'net.ipv6.conf.all.disable_ipv6 = 1' > /etc/sysctl.d/70-disable-ipv6.conf
-sysctl -p -f /etc/sysctl.d/70-disable-ipv6.conf
+sysctl -p -f /etc/sysctl.d/70-disable-ipv6.conf >/dev/null 2>&1 || true
 
-# - Execulta instalador
-[[ -e Plus ]] && rm Plus
-wget raw.githubusercontent.com/JeanRocha91x/SSHPLUS/main/script/${arch}/Plus && chmod 777 Plus && ./Plus
+rm -f Plus
+wget -q "${RAW_BASE}/script/${arch}/Plus" -O Plus || {
+    echo -e "${RED}[x] No pude descargar el instalador desde ${RAW_BASE}.${SCOLOR}"
+    exit 1
+}
+chmod +x Plus
+bash ./Plus
+
+if [[ -x /bin/menu ]]; then
+    ln -sf /bin/menu /usr/local/bin/menu 2>/dev/null || true
+    hash -r 2>/dev/null || true
+    echo -e "${GREEN}[OK] Menú instalado. Ejecutá: menu${SCOLOR}"
+else
+    echo -e "${RED}[x] La instalación terminó, pero /bin/menu no existe.${SCOLOR}"
+    echo -e "${YELLOW}[!] Revisá que hayas subido también Install/list y Modulos/menu a la rama ${GITHUB_BRANCH}.${SCOLOR}"
+    exit 1
+fi

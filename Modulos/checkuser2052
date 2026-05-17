@@ -1,0 +1,355 @@
+#!/usr/bin/env bash
+# SSH-PLUS BY El NeNe Pro
+# CheckUser HTTP local para apps, puerto 2052.
+# Responde validación de usuarios SSH normales, TOKEN y HWID.
+
+set -u
+
+RED='\033[1;31m'
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[1;36m'
+WHITE='\033[1;37m'
+BLUE='\033[1;34m'
+NC='\033[0m'
+
+APP="/usr/local/sbin/sshplus-checkuser2052.py"
+SVC="sshplus-checkuser2052.service"
+ENV_FILE="/etc/default/sshplus-checkuser2052"
+PORT_DEFAULT="2052"
+
+pause() { echo -ne "\n${YELLOW}ENTER ${WHITE}para volver${NC}"; read -r _; }
+top() { echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"; }
+line() { echo -e "${BLUE}╠════════════════════════════════════════════════════════════╣${NC}"; }
+bottom() { echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"; }
+title() { top; printf "${BLUE}║${NC}${WHITE}%-60s${BLUE}║${NC}\n" "              CHECKUSER 2052 - SSH-PLUS EL NENE"; line; }
+valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" -ge 1 ]] && [[ "$1" -le 65535 ]]; }
+
+write_app() {
+    mkdir -p /usr/local/sbin /etc/default 2>/dev/null || true
+    cat > "$APP" <<'PYEOF'
+#!/usr/bin/env python3
+import json
+import os
+import pwd
+import time
+import subprocess
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
+
+DB = "/root/usuarios.db"
+PASSDIR = "/etc/SSHPlus/senha"
+
+def get_limit(user):
+    try:
+        with open(DB, "r", encoding="utf-8", errors="ignore") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == user:
+                    return parts[1]
+    except FileNotFoundError:
+        pass
+    return "1"
+
+def user_comment(user):
+    try:
+        return pwd.getpwnam(user).pw_gecos or ""
+    except KeyError:
+        return ""
+
+def user_type_alias(user):
+    comment = user_comment(user)
+    if comment.startswith("token,"):
+        return "TOKEN", comment.split(",", 1)[1]
+    if comment.startswith("hwid,"):
+        return "HWID", comment.split(",", 1)[1]
+    return "SSH", "-"
+
+def shadow_fields(user):
+    try:
+        out = subprocess.check_output(["getent", "shadow", user], text=True, stderr=subprocess.DEVNULL).strip()
+    except Exception:
+        return None
+    if not out:
+        return None
+    parts = out.split(":")
+    return parts if len(parts) >= 8 else None
+
+def expiry_info(user):
+    fields = shadow_fields(user)
+    if not fields:
+        return False, "No se pudo leer vencimiento", None
+    expire_raw = fields[7] if len(fields) > 7 else ""
+    if expire_raw in ("", "-1", "0"):
+        return True, "Sin vencimiento", None
+    try:
+        exp_days = int(expire_raw)
+    except Exception:
+        return True, "Sin vencimiento", None
+    now_days = int(time.time() // 86400)
+    days_left = int(exp_days - now_days)
+    if days_left < 0:
+        return False, "Usuario vencido", days_left
+    return True, f"{days_left} días", days_left
+
+def password_ok(user, password):
+    fields = shadow_fields(user)
+    if not fields:
+        return False
+    saved = fields[1] if len(fields) > 1 else ""
+    if not saved or saved.startswith("!") or saved.startswith("*"):
+        return False
+    try:
+        calc = subprocess.check_output(
+            ["perl", "-e", "print crypt($ARGV[0], $ARGV[1])", password, saved],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        )
+        return calc == saved
+    except Exception:
+        return False
+
+def system_user_exists(user):
+    try:
+        pwd.getpwnam(user)
+        return True
+    except KeyError:
+        return False
+
+def online_count(user):
+    count = 0
+    try:
+        out = subprocess.check_output(["pgrep", "-u", user], text=True, stderr=subprocess.DEVNULL)
+        count += len([x for x in out.splitlines() if x.strip()])
+    except Exception:
+        pass
+    try:
+        if os.path.exists("/etc/openvpn/openvpn-status.log"):
+            with open("/etc/openvpn/openvpn-status.log", "r", encoding="utf-8", errors="ignore") as fh:
+                count += sum(1 for line in fh if line.startswith(user + ","))
+    except Exception:
+        pass
+    return count
+
+def check_user(user, password):
+    user = (user or "").strip()
+    password = (password or "").strip()
+    if not user or not password:
+        return False, {"status": "error", "message": "Falta usuario o contraseña"}
+    if not system_user_exists(user):
+        return False, {"status": "error", "message": "Usuario no existe"}
+    ok_exp, exp_msg, days_left = expiry_info(user)
+    if not ok_exp:
+        return False, {"status": "expired", "message": exp_msg, "user": user, "days_left": days_left}
+    if not password_ok(user, password):
+        return False, {"status": "error", "message": "Contraseña incorrecta"}
+    kind, alias = user_type_alias(user)
+    return True, {
+        "status": "success",
+        "message": "Usuario autorizado",
+        "user": user,
+        "type": kind,
+        "alias": alias,
+        "limit": get_limit(user),
+        "online": online_count(user),
+        "expires": exp_msg,
+        "days_left": days_left,
+    }
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "SSHPLUSCheckUser2052/1.0"
+
+    def send_json(self, code, payload):
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def send_text(self, code, text):
+        data = text.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        path = parsed.path.lower().strip("/")
+
+        if path in ("", "status", "health"):
+            self.send_json(200, {"status": "online", "service": "checkuser2052", "port": int(os.environ.get("CHECKUSER_PORT", "2052"))})
+            return
+
+        user = (
+            qs.get("user", [""])[0]
+            or qs.get("usuario", [""])[0]
+            or qs.get("username", [""])[0]
+            or qs.get("login", [""])[0]
+        )
+        password = (
+            qs.get("pass", [""])[0]
+            or qs.get("password", [""])[0]
+            or qs.get("senha", [""])[0]
+            or qs.get("clave", [""])[0]
+        )
+
+        ok, payload = check_user(user, password)
+        code = 200 if ok else 403
+
+        if path in ("plain", "checkplain"):
+            self.send_text(code, "OK\n" if ok else "FAIL\n")
+        else:
+            self.send_json(code, payload)
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        raw = self.rfile.read(length).decode("utf-8", errors="ignore")
+        params = parse_qs(raw)
+        user = (params.get("user", [""])[0] or params.get("usuario", [""])[0] or params.get("username", [""])[0])
+        password = (params.get("pass", [""])[0] or params.get("password", [""])[0] or params.get("senha", [""])[0] or params.get("clave", [""])[0])
+        ok, payload = check_user(user, password)
+        self.send_json(200 if ok else 403, payload)
+
+    def log_message(self, fmt, *args):
+        return
+
+def main():
+    host = os.environ.get("CHECKUSER_HOST", "0.0.0.0")
+    port = int(os.environ.get("CHECKUSER_PORT", "2052"))
+    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd.serve_forever()
+
+if __name__ == "__main__":
+    main()
+PYEOF
+    chmod +x "$APP"
+}
+
+write_service() {
+    local port="$1"
+    echo "CHECKUSER_PORT=${port}" > "$ENV_FILE"
+    echo "CHECKUSER_HOST=0.0.0.0" >> "$ENV_FILE"
+    cat > "/etc/systemd/system/${SVC}" <<EOF
+[Unit]
+Description=SSHPLUS BY El NeNe - CheckUser puerto ${port}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=${ENV_FILE}
+ExecStart=/usr/bin/python3 ${APP}
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload >/dev/null 2>&1 || true
+}
+install_service() {
+    local port="${1:-$PORT_DEFAULT}"
+    if ! valid_port "$port"; then
+        echo -e "${RED}Puerto inválido.${NC}"
+        pause; return
+    fi
+    write_app
+    write_service "$port"
+    systemctl enable "$SVC" >/dev/null 2>&1 || true
+    systemctl restart "$SVC" >/dev/null 2>&1
+    sleep 1
+    if systemctl is-active --quiet "$SVC"; then
+        echo -e "${GREEN}CheckUser activo en puerto ${port}.${NC}"
+        echo -e "${CYAN}Prueba:${NC} http://IP_DEL_VPS:${port}/check?user=USUARIO&pass=CLAVE"
+    else
+        echo -e "${RED}No pude iniciar CheckUser. Revisá logs.${NC}"
+        systemctl status "$SVC" --no-pager -l 2>/dev/null | tail -20
+    fi
+    pause
+}
+stop_service() {
+    systemctl stop "$SVC" >/dev/null 2>&1 || true
+    systemctl disable "$SVC" >/dev/null 2>&1 || true
+    echo -e "${YELLOW}CheckUser detenido.${NC}"
+    pause
+}
+status_service() {
+    clear
+    title
+    local port
+    port=$(grep -E '^CHECKUSER_PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2)
+    [[ -z "$port" ]] && port="$PORT_DEFAULT"
+    echo -e "${CYAN}Puerto:${NC} ${WHITE}${port}${NC}"
+    if systemctl is-active --quiet "$SVC"; then
+        echo -e "${CYAN}Estado:${NC} ${GREEN}ACTIVO${NC}"
+    else
+        echo -e "${CYAN}Estado:${NC} ${RED}INACTIVO${NC}"
+    fi
+    echo
+    systemctl status "$SVC" --no-pager -l 2>/dev/null | tail -25 || true
+    bottom
+    pause
+}
+logs_service() {
+    clear
+    title
+    journalctl -u "$SVC" -n 100 --no-pager 2>/dev/null || echo "Sin logs."
+    bottom
+    pause
+}
+test_local() {
+    local u p port
+    port=$(grep -E '^CHECKUSER_PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2)
+    [[ -z "$port" ]] && port="$PORT_DEFAULT"
+    clear
+    title
+    echo -ne "${GREEN}Usuario:${NC} "; read -r u
+    echo -ne "${GREEN}Contraseña:${NC} "; read -r p
+    if command -v curl >/dev/null 2>&1; then
+        curl -s "http://127.0.0.1:${port}/check?user=${u}&pass=${p}" && echo
+    else
+        echo -e "${YELLOW}curl no está instalado. URL de prueba:${NC}"
+        echo "http://127.0.0.1:${port}/check?user=${u}&pass=${p}"
+    fi
+    bottom
+    pause
+}
+
+while true; do
+    clear
+    title
+    if systemctl is-active --quiet "$SVC"; then
+        echo -e "${CYAN}Estado actual:${NC} ${GREEN}ON${NC}"
+    else
+        echo -e "${CYAN}Estado actual:${NC} ${RED}OFF${NC}"
+    fi
+    echo -e "${YELLOW}[1]${WHITE} Instalar / activar en puerto 2052"
+    echo -e "${YELLOW}[2]${WHITE} Instalar / activar en otro puerto"
+    echo -e "${YELLOW}[3]${WHITE} Reiniciar servicio"
+    echo -e "${YELLOW}[4]${WHITE} Detener servicio"
+    echo -e "${YELLOW}[5]${WHITE} Estado"
+    echo -e "${YELLOW}[6]${WHITE} Logs"
+    echo -e "${YELLOW}[7]${WHITE} Probar usuario local"
+    echo -e "${YELLOW}[0]${WHITE} Volver"
+    bottom
+    echo -ne "${GREEN}Elegí una opción:${NC} "
+    read -r op
+    case "$op" in
+        1) install_service "$PORT_DEFAULT" ;;
+        2) echo -ne "${GREEN}Puerto:${NC} "; read -r p; install_service "$p" ;;
+        3) systemctl restart "$SVC" >/dev/null 2>&1 && echo -e "${GREEN}Servicio reiniciado.${NC}" || echo -e "${RED}No se pudo reiniciar.${NC}"; pause ;;
+        4) stop_service ;;
+        5) status_service ;;
+        6) logs_service ;;
+        7) test_local ;;
+        0) exit 0 ;;
+        *) echo -e "${RED}Opción inválida.${NC}"; sleep 1 ;;
+    esac
+done
