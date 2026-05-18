@@ -1,67 +1,28 @@
-#!/usr/bin/env bash
-clear
-# SSHPLUS BY El NeNe
+# SEJA BEM VINDO(A)! 🤝
 
-RED='\033[1;31m'
-YELLOW='\033[1;33m'
-GREEN='\033[1;32m'
-SCOLOR='\033[0m'
-GITHUB_USER="${GITHUB_USER:-eze1087}"
-GITHUB_REPO="${GITHUB_REPO:-SSHPLUS}"
-GITHUB_BRANCH="${GITHUB_BRANCH:-SSHPLUS-BY-NeNePro}"
-RAW_BASE="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}"
-export GITHUB_USER GITHUB_REPO GITHUB_BRANCH RAW_BASE
+# SSH-PLUS
 
-[[ "${EUID:-$(id -u)}" -ne 0 ]] && {
-    echo -e "${RED}[x] Tenés que ejecutar como root.${SCOLOR}"
-    exit 1
-}
+# @swittecnologia
 
-case "$(uname -m)" in
-    amd64|x86_64) arch='64' ;;
-    aarch64|armv8|arm64) arch='arm64' ;;
-    *) echo -e "${RED}[x] Arquitectura incompatible.${SCOLOR}"; exit 1 ;;
-esac
+*PROJETO EM ANDAMENTO...
 
-if grep -qi "ubuntu" /etc/os-release; then
-    os_version=$(grep 'VERSION_ID' /etc/os-release | cut -d '"' -f 2 | tr -d '.')
-    [[ "$os_version" -lt 1804 ]] && {
-        echo -e "${RED}[x] Versión de Ubuntu incompatible.\n${YELLOW}[!] Requiere Ubuntu 18.04 o superior.${SCOLOR}"
-        exit 1
-    }
-elif [[ -e /etc/debian_version ]]; then
-    os_version=$(grep -oE '[0-9]+' /etc/debian_version | head -1)
-    [[ "$os_version" -lt 9 ]] && {
-        echo -e "${RED}[x] Versión de Debian incompatible.\n${YELLOW}[!] Requiere Debian 9 o superior.${SCOLOR}"
-        exit 1
-    }
-else
-    echo -e "${RED}[x] Sistema operativo incompatible.\n${YELLOW}[!] Requiere Debian/Ubuntu.${SCOLOR}"
-    exit 1
-fi
 
-dpkg --configure -a
-apt update -y && apt upgrade -y
-apt install -y unzip python3 python3-pip curl wget screen net-tools
+# Modo de instalação
+# 👇😎👍
+Só joga na máquina e deixar instalar
 
-sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1 || true
-echo 'net.ipv6.conf.all.disable_ipv6 = 1' > /etc/sysctl.d/70-disable-ipv6.conf
-sysctl -p -f /etc/sysctl.d/70-disable-ipv6.conf >/dev/null 2>&1 || true
+• atualiza sistema
 
-rm -f Plus
-wget -q "${RAW_BASE}/script/${arch}/Plus" -O Plus || {
-    echo -e "${RED}[x] No pude descargar el instalador desde ${RAW_BASE}.${SCOLOR}"
-    exit 1
-}
-chmod +x Plus
-bash ./Plus
+• desativa Ipv6
 
-if [[ -x /bin/menu ]]; then
-    ln -sf /bin/menu /usr/local/bin/menu 2>/dev/null || true
-    hash -r 2>/dev/null || true
-    echo -e "${GREEN}[OK] Menú instalado. Ejecutá: menu${SCOLOR}"
-else
-    echo -e "${RED}[x] La instalación terminó, pero /bin/menu no existe.${SCOLOR}"
-    echo -e "${YELLOW}[!] Revisá que hayas subido también Install/list y Modulos/menu a la rama ${GITHUB_BRANCH}.${SCOLOR}"
-    exit 1
-fi
+• instala recursos e o script
+```
+apt install wget -y; bash <(wget -qO- raw.githubusercontent.com/JeanRocha91x/SSHPLUS/main/ssh-plus)
+
+```
+<div align="left">
+<img src="https://user-images.githubusercontent.com/105602625/177037521-9c79ed5f-c56d-42b8-8ebf-58dd8f63566f.jpg" width="350px" /></br>
+<img src="https://user-images.githubusercontent.com/105602625/177037522-4dd14720-d0d0-4416-bc0c-9ef6d7891538.jpg" width="350px" /></br>
+<img src="https://user-images.githubusercontent.com/105602625/177037524-8aa985ad-47d0-4f3e-aa97-4b2052436f6b.jpg" width="350px" /></br>
+<img src="https://user-images.githubusercontent.com/105602625/177037525-8c621136-2fae-4a5e-b894-40e552b1edc1.jpg" width="350px" /></br>
+</div>
