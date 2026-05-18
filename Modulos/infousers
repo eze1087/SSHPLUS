@@ -1,49 +1,59 @@
 #!/bin/bash
-# SSH-PLUS BY El NeNe Pro - Informe de usuarios
 clear
-DB="/root/usuarios.db"
-PASSDIR="/etc/SSHPlus/senha"
-VALOR_FILE="/root/valor"
-touch "$DB" 2>/dev/null
-get_limit() { awk -v u="$1" '$1==u {print $2; found=1} END{if(!found) print 1}' "$DB"; }
-expiry_raw() { chage -l "$1" 2>/dev/null | awk -F': ' '/Account expires|La cuenta caduca|Cuenta caduca|Conta expira/{print $2; exit}'; }
-validity() {
-    local user="$1" exp databr hoy dat days
-    exp="$(expiry_raw "$user")"
-    if [[ -z "$exp" || "$exp" == "never" || "$exp" == "nunca" ]]; then echo -e "\033[1;33mSin fecha\033[0m"; return; fi
-    databr=$(date -d "$exp" +%Y%m%d 2>/dev/null) || { echo -e "\033[1;31mDesconocida\033[0m"; return; }
-    hoy=$(date -d today +%Y%m%d)
-    if [[ $hoy -ge $databr ]]; then echo -e "\033[1;31mVencido\033[0m"; else dat=$(date -d "$exp" +%Y-%m-%d); days=$((($(date -ud "$dat" +%s)-$(date -ud "$(date +%Y-%m-%d)" +%s))/86400)); echo -e "\033[1;32m${days} días\033[0m"; fi
-}
-
-echo -e "\E[44;1;37m USUARIO        CONTRASEÑA   LÍMITE     VALIDEZ \E[0m\n"
-count=0
-while read -r users; do
-    [[ -z "$users" ]] && continue
-    count=$((count+1))
-    lim="$(get_limit "$users")"
-    senha="Null"; [[ -e "$PASSDIR/$users" ]] && senha="$(cat "$PASSDIR/$users")"
-    Usuario=$(printf ' %-15s' "$users")
-    Senha=$(printf '%-13s' "$senha")
-    Limite=$(printf '%-10s' "$lim")
-    Data=$(validity "$users")
-    echo -e "\033[1;33m$Usuario \033[1;37m$Senha \033[1;37m$Limite $Data\033[0m"
-    echo -e "\033[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
-done <<< "$(awk -F: '$3>=1000 && $1!="nobody" {print $1}' /etc/passwd | sort)"
-
-valor_total="0"
-[[ -f "$VALOR_FILE" ]] && valor_total=$(awk '{gsub(",","."); if($1+0==$1) SUM += $1} END {printf "%.2f", SUM+0}' "$VALOR_FILE")
-_ons=$(ps -x | grep sshd | grep -v root | grep priv | wc -l)
-[[ -e /etc/openvpn/openvpn-status.log ]] && _onop=$(grep -c "10.8.0" /etc/openvpn/openvpn-status.log) || _onop="0"
-[[ -e /etc/default/dropbear ]] && _drp=$(ps aux | grep dropbear | grep -v grep | wc -l) && _ondrp=$((_drp > 0 ? _drp - 1 : 0)) || _ondrp="0"
-_onli=$((_ons + _onop + _ondrp))
-_expuser="0"; [[ -s /etc/SSHPlus/Exp ]] && _expuser=$(cat /etc/SSHPlus/Exp)
-echo -e "\033[1;33m• \033[1;36mTOTAL USUARIOS\033[1;37m $count \033[1;33m• \033[1;32mONLINE\033[1;37m: $_onli \033[1;33m• \033[1;31mVENCIDOS\033[1;37m: $_expuser \033[1;33m• VALOR: $valor_total \033[0m"
-
-if [[ -s /etc/SSHPlus/RegV2ray ]]; then
-    echo -e "\n\E[44;1;37m USUARIOS V2RAY \E[0m\n"
-    cat /etc/SSHPlus/RegV2ray
-    vt=$(wc -l < /etc/SSHPlus/RegV2ray)
-    echo -e "\033[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
-    echo -e "\033[1;33m• \033[1;36mTOTAL V2RAY\033[1;37m $vt \033[0m"
+echo -e "\E[44;1;37m USUÁRIO        SENHA       LIMITE      VALIDADE \E[0m"
+echo ""
+[[ ! -e /bin/versao ]] && rm -rf /bin/menu
+for users in `awk -F : '$3 > 900 { print $1 }' /etc/passwd |sort |grep -v "nobody" |grep -vi polkitd |grep -vi system-`
+do
+if [[ $(grep -cw $users $HOME/usuarios.db) == "1" ]]; then
+    lim=$(grep -w $users $HOME/usuarios.db | cut -d' ' -f2)
+else
+    lim="1"
 fi
+if [[ -e "/etc/SSHPlus/senha/$users" ]]; then
+    senha=$(cat /etc/SSHPlus/senha/$users)
+else
+    senha="Null"
+fi
+datauser=$(chage -l $users |grep -i co |awk -F : '{print $2}')
+if [ $datauser = never ] 2> /dev/null
+then
+data="\033[1;33mNunca\033[0m"
+else
+    databr="$(date -d "$datauser" +"%Y%m%d")"
+    hoje="$(date -d today +"%Y%m%d")"
+    if [ $hoje -ge $databr ]
+    then
+    data="\033[1;31mVenceu\033[0m"
+    else
+    dat="$(date -d"$datauser" '+%Y-%m-%d')"
+    data=$(echo -e "$((($(date -ud $dat +%s)-$(date -ud $(date +%Y-%m-%d) +%s))/86400)) \033[1;37mDias\033[0m")
+    fi
+fi
+Usuario=$(printf ' %-15s' "$users")
+Senha=$(printf '%-13s' "$senha")
+Limite=$(printf '%-10s' "$lim")
+Data=$(printf '%-1s' "$data")
+echo -e "\033[1;33m$Usuario \033[1;37m$Senha \033[1;37m$Limite \033[1;32m$Data\033[0m"
+echo -e "\033[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+done
+EXISTEM[0]=$(awk '{SUM += $1} END {print SUM}' valor);
+EXISTEM[1]=$(awk '{SUM += $1} END {print SUM}' valor);
+echo ""
+_tuser=$(awk -F: '$3>=1000 {print $1}' /etc/passwd | grep -v nobody | wc -l)
+_ons=$(ps -x | grep sshd | grep -v root | grep priv | wc -l)
+[[ "$(cat /etc/SSHPlus/Exp)" != "" ]] && _expuser=$(cat /etc/SSHPlus/Exp) || _expuser="0"
+[[ -e /etc/openvpn/openvpn-status.log ]] && _onop=$(grep -c "10.8.0" /etc/openvpn/openvpn-status.log) || _onop="0"
+[[ -e /etc/default/dropbear ]] && _drp=$(ps aux | grep dropbear | grep -v grep | wc -l) _ondrp=$(($_drp - 1)) || _ondrp="0"
+_onli=$(($_ons + $_onop + $_ondrp))
+echo -e "\033[1;33m• \033[1;36mTOTAL USUARIOS\033[1;37m $_tuser \033[1;33m• \033[1;32mONLINES\033[1;37m: $_onli \033[1;33m• \033[1;31mVENCIDOS\033[1;37m: $_expuser \033[1;33m• VALOR: ${EXISTEM[1]} \033[0m"
+echo -e "\E[44;1;37m USUÁRIO V2RAY         UUID            | USUÁRIO | VALIDADE \E[0m"
+echo ""
+cat /etc/SSHPlus/RegV2ray
+vt=$(cat /etc/SSHPlus/RegV2ray | wc -l)
+echo""
+    echo -e "\033[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+echo -e "\033[1;33m• \033[1;36mTOTAL USUARIOS\033[1;37m $vt \033[0m"
+    echo -e "\033[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+
+

@@ -1,64 +1,94 @@
 #!/bin/bash
-# SSH-PLUS BY El NeNe Pro - Bloquear/desbloquear usuarios
-BLOCKFILE="/root/bloqueado"
-DB="/root/usuarios.db"
-PASSDIR="/etc/SSHPlus/senha"
-touch "$BLOCKFILE" "$DB" 2>/dev/null
-list_users() { awk -F: '$3>=1000 && $1!="nobody" {print $1}' /etc/passwd | sort; }
-is_locked() { passwd -S "$1" 2>/dev/null | awk '{print $2}' | grep -Eq 'L|LK'; }
-select_user() {
-    local mode="$1" users user i option selected
-    if [[ "$mode" == "locked" ]]; then users="$(sort -u "$BLOCKFILE" 2>/dev/null | while read -r u; do getent passwd "$u" >/dev/null && echo "$u"; done)"; else users="$(list_users)"; fi
-    [[ -z "$users" ]] && return 1
-    i=0; unset MAP_USER
-    while read -r user; do
-        [[ -z "$user" ]] && continue
-        i=$((i+1)); MAP_USER[$i]="$user"
-        pass="Null"; [[ -e "$PASSDIR/$user" ]] && pass="$(cat "$PASSDIR/$user")"
-        limit=$(awk -v u="$user" '$1==u {print $2; found=1} END{if(!found) print 1}' "$DB")
-        locked="ACTIVO"; is_locked "$user" && locked="BLOQUEADO"
-        printf '\033[1;31m[\033[1;36m%02d\033[1;31m] \033[1;32m%-16s \033[1;37mPass:%-12s Lim:%-4s \033[1;33m%s\033[0m\n' "$i" "$user" "$pass" "$limit" "$locked" >&2
-    done <<< "$users"
-    echo -ne "\n\033[1;32mEscribí número o nombre de usuario:\033[1;37m " >&2; read -r option
-    if [[ "$option" =~ ^[0-9]+$ ]]; then selected="${MAP_USER[$((10#$option))]}"; else selected="$option"; fi
-    [[ -z "$selected" ]] && return 1
-    getent passwd "$selected" >/dev/null || return 1
-    printf '%s' "$selected"
-}
+clear
+###############################################################
+#Programa para bloquear temporariamente e desbloquear contas de usuario"
+###############################################################
+#GÊNIO HACKER MANAGER
+###############################################################
+clear
+while [  "$op"  !=  "3" ]
+do
+echo -e "\E[44;1;37m             BLOCK TEMPORARY USER            \E[0m"
+echo " BLOQUEAR E DESBLOQUEAR USUÁRIO TEMPORARIAMENTE "
+echo -e "\n"
+echo -e "\033[1;34m[\033[1;37m01 •\033[1;34m]\033[1;37m ➩ \033[1;33mBLOQUEAR USUÁRIO \033[0;32m"
+echo -e "\033[1;34m[\033[1;37m02 •\033[1;34m]\033[1;37m ➩ \033[1;33mDESBLOQUEAR USUÁRIO \033[1;37m"
+echo -e "\033[1;34m[\033[1;37m00 •\033[1;34m]\033[1;37m ➩ \033[1;33mSAIR \033[0;32m"
 
-while true; do
-    clear
-    echo -e "\E[44;1;37m       BLOQUEAR / DESBLOQUEAR USUARIO       \E[0m"
-    echo -e "\n\033[1;34m[\033[1;37m01 •\033[1;34m] \033[1;33mBLOQUEAR USUARIO"
-    echo -e "\033[1;34m[\033[1;37m02 •\033[1;34m] \033[1;33mDESBLOQUEAR USUARIO"
-    echo -e "\033[1;34m[\033[1;37m00 •\033[1;34m] \033[1;33mVOLVER\033[0m\n"
-    echo -ne "\033[1;32mELEGÍ UNA OPCIÓN:\033[1;37m "; read -r op
-    case "$op" in
-        1|01)
-            clear; echo -e "\E[44;1;37m Usuarios disponibles \E[0m\n"
-            lock="$(select_user all)" || { echo -e "\033[1;31mUsuario inválido.\033[0m"; sleep 2; continue; }
-            if passwd -l "$lock" >/dev/null 2>&1; then
-                grep -qxF "$lock" "$BLOCKFILE" || echo "$lock" >> "$BLOCKFILE"
-                pkill -u "$lock" >/dev/null 2>&1 || true
-                echo -e "\n\E[41;1;37m Usuario $lock bloqueado correctamente. \E[0m"
-            else
-                echo -e "\n\033[1;31mNo se pudo bloquear $lock.\033[0m"
-            fi
-            echo -ne "\nENTER para volver"; read -r _
-            ;;
-        2|02)
-            clear; echo -e "\E[44;1;37m Usuarios bloqueados \E[0m\n"
-            unlock="$(select_user locked)" || { echo -e "\033[1;31mNo hay usuario bloqueado o selección inválida.\033[0m"; sleep 2; continue; }
-            if passwd -u "$unlock" >/dev/null 2>&1; then
-                grep -vxF "$unlock" "$BLOCKFILE" > /tmp/bloqueado.$$ 2>/dev/null || true
-                mv /tmp/bloqueado.$$ "$BLOCKFILE"
-                echo -e "\n\E[44;1;37m Usuario $unlock desbloqueado correctamente. \E[0m"
-            else
-                echo -e "\n\033[1;31mNo se pudo desbloquear $unlock.\033[0m"
-            fi
-            echo -ne "\nENTER para volver"; read -r _
-            ;;
-        0|00) command -v menu >/dev/null 2>&1 && menu || exit 0 ;;
-        *) echo -e "\033[1;31mOpción inválida.\033[0m"; sleep 2 ;;
-    esac
+read op
+case $op in
+1)clear
+echo -e "\E[44;1;37m Usuario         Senha       limite      validade \E[0m"
+echo ""
+[[ ! -e /bin/versao ]] && rm -rf /bin/menu
+for users in `awk -F : '$3 > 900 { print $1 }' /etc/passwd |sort |grep -v "nobody" |grep -vi polkitd |grep -vi system-`
+do
+if [[ $(grep -cw $users $HOME/usuarios.db) == "1" ]]; then
+    lim=$(grep -w $users $HOME/usuarios.db | cut -d' ' -f2)
+else
+    lim="1"
+fi
+if [[ -e "/etc/SSHPlus/senha/$users" ]]; then
+    senha=$(cat /etc/SSHPlus/senha/$users)
+else
+    senha="Null"
+fi
+datauser=$(chage -l $users |grep -i co |awk -F : '{print $2}')
+if [ $datauser = never ] 2> /dev/null
+then
+data="\033[1;33mNunca\033[0m"
+else
+    databr="$(date -d "$datauser" +"%Y%m%d")"
+    hoje="$(date -d today +"%Y%m%d")"
+    if [ $hoje -ge $databr ]
+    then
+    data="\033[1;31mVenceu\033[0m"
+    else
+    dat="$(date -d"$datauser" '+%Y-%m-%d')"
+    data=$(echo -e "$((($(date -ud $dat +%s)-$(date -ud $(date +%Y-%m-%d) +%s))/86400)) \033[1;37mDias\033[0m")
+    fi
+fi
+Usuario=$(printf ' %-15s' "$users")
+Senha=$(printf '%-13s' "$senha")
+Limite=$(printf '%-10s' "$lim")
+Data=$(printf '%-1s' "$data")
+echo -e "\033[1;33m$Usuario \033[1;37m$Senha \033[1;37m$Limite \033[1;32m$Data\033[0m"
+echo -e "\033[0;34m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m"
+done
+echo ""
+_tuser=$(awk -F: '$3>=1000 {print $1}' /etc/passwd | grep -v nobody | wc -l)
+_ons=$(ps -x | grep sshd | grep -v root | grep priv | wc -l)
+[[ "$(cat /etc/SSHPlus/Exp)" != "" ]] && _expuser=$(cat /etc/SSHPlus/Exp) || _expuser="0"
+[[ -e /etc/openvpn/openvpn-status.log ]] && _onop=$(grep -c "10.8.0" /etc/openvpn/openvpn-status.log) || _onop="0"
+[[ -e /etc/default/dropbear ]] && _drp=$(ps aux | grep dropbear | grep -v grep | wc -l) _ondrp=$(($_drp - 1)) || _ondrp="0"
+_onli=$(($_ons + $_onop + $_ondrp))
+echo -e "\033[1;33m• \033[1;36mTOTAL USUARIOS\033[1;37m $_tuser \033[1;33m• \033[1;32mONLINES\033[1;37m: $_onli \033[1;33m• \033[1;31mVENCIDOS\033[1;37m: $_expuser \033[1;33m•\033[0m"
+
+echo " DIGITE O NOME DE USUÁRIO QUE DESEJA BLOQUEAR : "; read lock
+passwd -l $lock && echo "$lock" >> /root/bloqueado
+echo -e "\033[1;34m\033[1;37m\033[1;34m\033[1;37m \033[1;33mUSUÁRIO BLOQUEADO COM SUCESSO \033[0;32m"
+echo -e ""
+echo -e ""
+echo -ne "\n\033[1;33mENTER \033[1;33mPARA VOLTAR AO \033[1;33mMENU!\033[0m"; read
+;;
+2)
+clear
+cat /root/bloqueado
+echo " DIGITE O NOME DE USUÁRIO QUE DESEJA DESBLOQUEAR :   "
+read unlock
+passwd -u  $unlock
+echo -e "\033[1;34m\033[1;37m\033[1;34m\033[1;37m \033[1;33mUSUÁRIO DESBLOQUEADO COM SUCESSO \033[0;32m"
+echo -e ""
+echo -e ""
+echo -ne "\n\033[1;33mENTER \033[1;33mPARA VOLTAR AO \033[1;33mMENU!\033[0m"; read
+;;
+0)clear
+echo "RETORNANDO...."
+menu
+;;
+*)clear
+echo "Opcao Invalida ..."
+;;
+esac
+read
 done
